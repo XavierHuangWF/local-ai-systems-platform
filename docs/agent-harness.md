@@ -478,3 +478,128 @@ The harness constructs a pending request without immediately changing
 stored history. It commits the updated history only after receiving
 a successful model response.
 ```
+
+
+## Real-Model Integration Verification
+
+### Objective
+
+Verify that the complete Agent Harness operates correctly with
+the locally hosted Qwen3 language model.
+
+Unlike unit testing, this verification uses the real model client,
+token counter, vLLM inference server, and NVIDIA GPU.
+
+### Components Tested
+
+- AgentHarness: conversation state management
+- TokenCounter: input token validation
+- VLLMClient: Application Programming Interface (API) communication
+- vLLM: Large Language Model (LLM) inference serving
+- Qwen3-8B-AWQ: local language model
+
+### Verification Script
+
+File: `scripts/verify_agent_integration.py`
+
+### Reproduction
+
+Start the vLLM server:
+
+```bash
+bash scripts/serve_vllm.sh
+```
+
+In another Ubuntu terminal, activate the Python environment and
+run the integration script from the project root:
+
+```bash
+python -m scripts.verify_agent_integration
+```
+
+### Actual Results
+
+Test 1: Real model response
+
+```text
+Assistant: Acknowledged, Cypress.
+PASS: Model returned a nonempty response.
+```
+
+Test 2: Multi-turn conversation history
+
+```text
+User: What is my project codename?
+Assistant: Cypress
+PASS: Conversation history preserved.
+```
+
+The model correctly recalled the codename from the previous exchange.
+
+Test 3: Conversation reset
+
+```text
+PASS: Conversation reset.
+```
+
+Final verification:
+
+```text
+PASS: Agent integration checks completed.
+```
+
+All three integration checks passed.
+
+### Engineering Findings
+
+**1. End-to-end inference**
+
+The application successfully sent requests through the real
+model client to the locally hosted vLLM server.
+
+**2. Conversation state**
+
+The harness preserved previous user and assistant messages
+between requests.
+
+The model successfully retrieved information from the
+conversation history.
+
+**3. State reset**
+
+The reset operation cleared conversation history while
+preserving the system instructions.
+
+**4. Model output formatting**
+
+Qwen3 responses contained empty `<think></think>` tags.
+The integration checks passed, but output formatting may
+require additional processing.
+
+### Testing Limitations
+
+- The integration script asserts nonempty responses and correct
+  conversation structure, but codename accuracy was inspected manually.
+- The test does not establish model accuracy across different tasks.
+- Automatic token-budget trimming was verified through unit tests,
+  not through an oversized real-model integration request.
+- Concurrent execution, persistent storage, and extended reliability
+  testing remain future work.
+
+### Interview Discussion
+
+**How was the Agent Harness validated?**
+
+The implementation was validated at two levels.
+
+First, seven unit tests used simulated model and token-counter
+components to verify conversation state, reset behavior,
+error handling, and token-budget enforcement.
+
+Second, an integration script exercised the actual local
+Qwen3 inference stack. It verified successful model calls,
+conversation-history preservation, and state reset.
+
+This separates application logic testing from actual
+model-serving integration.
+

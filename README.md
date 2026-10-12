@@ -1,12 +1,12 @@
 # Local AI Systems Platform
 
-A local, Graphics Processing Unit (GPU)-backed Artificial Intelligence (AI) platform for experimenting with Large Language Model (LLM) inference, stateful agents, context management, and reproducible verification.
+A local, Graphics Processing Unit (GPU)-backed Artificial Intelligence (AI) platform for exploring Large Language Model (LLM) inference, stateful agent execution, context management, task-specific skills, and reproducible verification.
 
-The repository contains working Python components, executable verification scripts, and technical records of implementation decisions, test results, and debugging findings. Functionality that has not yet been implemented is identified separately.
+The repository contains Python components, executable verification scripts, automated tests, and technical documentation. Implemented functionality is distinguished from planned work.
 
 ## Architecture
 
-### Implemented inference and agent path
+### Inference and agent execution
 
 ```text
 User
@@ -17,8 +17,9 @@ Command-Line Interface (CLI)
   v
 AgentHarness
   |  Conversation history and reset
-  |  Six-exchange history window
-  |  Token-budget validation and trimming
+  |  Maximum six completed exchanges
+  |  Token-budget validation and history trimming
+  |  Optional active skill instructions
   v
 VLLMClient
   |  src/client/vllm_client.py
@@ -35,50 +36,61 @@ Qwen3-8B-AWQ
 NVIDIA CUDA / GPU
 ```
 
-`AgentHarness` uses `TokenCounter` (`src/agent/token_counter.py`) to check the model-specific input token budget before submitting requests. It preserves system instructions and updates saved conversation state only after successful model responses.
+`AgentHarness` uses the model-specific `TokenCounter` to check input size before submitting requests. It updates stored conversation history only after successful model responses.
 
-### Independently verified skill-loading component
+### Skill activation and context injection
 
 ```text
 skills/research_summary/SKILL.md
-              |
-              v
-       SkillLoader
-  src/skills/skill_loader.py
-              |
-              v
+                |
+                v
+       SkillLoader.load()
+                |
+                v
  Skill(name, description, instructions)
+                |
+                v
+ AgentHarness.activate_skill("research_summary")
+                |
+                v
+ General system prompt + skill instructions
+                |
+                v
+ Token-budget validation -> VLLMClient -> Qwen3
 ```
 
-The skill loader currently reads and validates local skill definitions. **Skill activation within `AgentHarness` has not yet been implemented.**
+Skill activation is currently **explicit through Python code**. Activating or deactivating a skill resets conversation history; resetting a conversation alone preserves the active skill. The existing interactive CLI does **not** yet provide commands for selecting skills. Skills provide instructions; they do not execute code or grant tool permissions.
 
 ## Current Implementation
 
-- **Local inference:** vLLM serving `Qwen/Qwen3-8B-AWQ` through an OpenAI-compatible API.
-- **Model client:** Configurable endpoint, model name, timeout, retries, and text response handling.
-- **Agent Harness:** Multi-turn conversation state, persistent system instructions within each session, `/reset`, and error handling.
-- **Context management:** Maximum of six completed conversation exchanges, model-specific token counting, and removal of older exchanges when input exceeds the budget.
-- **Local skill loader:** Markdown skill definitions with validated names, metadata extraction, and explicit handling of missing skills.
-- **Verification:** Automated harness unit tests, token-counter checks, skill-loader checks, and an integration script exercising real local model inference.
+- **Local inference:** vLLM serves `Qwen/Qwen3-8B-AWQ` through an OpenAI-compatible API.
+- **Model client:** Configurable endpoint, model name, request timeout, retries, and text response handling.
+- **Agent Harness:** Multi-turn conversation state, system instructions, reset, input validation, and failure-safe state updates.
+- **Context management:** Up to six completed exchanges, Qwen3 chat-template token counting, and removal of older exchanges when the input exceeds its budget.
+- **Skill definitions:** Versioned Markdown instructions, currently including `research_summary`.
+- **Skill Loader:** Metadata extraction, skill-name validation, path checks, and missing-file handling.
+- **Skill integration:** Explicit activation/deactivation and task-specific instructions in the model's system message.
+- **Verification:** Python unit tests, deterministic verification scripts, and real-model integration checks.
 
 ## Environment
 
 The initial implementation was developed and verified using:
 
-- Windows with Windows Subsystem for Linux 2 (WSL2), Ubuntu
+- Windows with Windows Subsystem for Linux 2 (WSL2) and Ubuntu
 - Python 3.12
 - NVIDIA GeForce RTX 3080 with 16 GB video memory
 - NVIDIA CUDA Toolkit 13.2
 - PyTorch `2.13.0+cu132`
 - `Qwen/Qwen3-8B-AWQ` (Activation-aware Weight Quantization)
 
-The Python packages and downloaded model are local environment dependencies; they are not committed to the repository.
+The Python environments, installed dependencies, and downloaded model weights are not stored in the repository.
 
 ## Repository Structure
 
 ```text
 local-ai-systems-platform/
 ├── docs/
+│   ├── architecture.md
 │   ├── agent-harness.md
 │   ├── local-llm-serving.md
 │   ├── skills-and-context.md
@@ -86,6 +98,8 @@ local-ai-systems-platform/
 ├── scripts/
 │   ├── serve_vllm.sh
 │   ├── verify_agent_integration.py
+│   ├── verify_skill_activation.py
+│   ├── verify_skill_integration.py
 │   ├── verify_skill_loader.py
 │   └── verify_token_counter.py
 ├── skills/
@@ -101,27 +115,28 @@ local-ai-systems-platform/
 │   └── skills/
 │       └── skill_loader.py
 └── tests/
-    └── test_harness.py
+    ├── test_harness.py
+    └── test_skill_activation.py
 ```
 
-This tree shows the principal project files; Python package initialization files and repository configuration files are omitted for readability.
+This tree omits Python package initialization files and repository configuration files for readability.
 
 ## Running the Platform
 
-The following commands are for the existing Ubuntu environment. Start from the repository root and activate the installed Python environment:
+The following commands apply to the existing Ubuntu environment. Open Ubuntu and run:
 
 ```bash
 source ~/.venv/bin/activate
 cd /mnt/c/Users/Xavier/PycharmProjects/local-ai-systems-platform
 ```
 
-**Terminal 1 — start the local inference server:**
+**Terminal 1 — start the inference server:**
 
 ```bash
 bash scripts/serve_vllm.sh
 ```
 
-Wait for the server's `Application startup complete` message and leave that terminal running.
+Wait until `Application startup complete` is reported. Leave the server terminal running.
 
 **Terminal 2 — start the interactive agent:**
 
@@ -129,63 +144,78 @@ Wait for the server's `Application startup complete` message and leave that term
 python -m src.agent.cli
 ```
 
-Use `/reset` to clear conversation history and `/exit` to leave the interactive session.
+Use `/reset` to clear conversation history and `/exit` to leave the session. The CLI currently supports general conversation; skill activation is available through `AgentHarness.activate_skill()` in Python and the verification scripts.
 
-The startup script is configured for local development (`127.0.0.1:8000`) and uses a development API key. These settings are not a production security configuration.
+The server binds to `127.0.0.1:8000` and uses a development API key. These settings do not constitute a production security configuration.
 
 ## Reproducible Verification
 
-Run the following commands from the repository root with the Python environment activated:
+Run from the project root with the Python virtual environment activated.
 
-**Agent Harness unit tests (no inference server required):**
+**Automated unit tests (no inference server required):**
 
 ```bash
 python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
-**Qwen3 tokenizer and context-budget verification (no inference server required):**
+**Tokenizer and token-budget verification (no inference server required):**
 
 ```bash
 python -m scripts.verify_token_counter
 ```
 
-**Skill-definition parsing and validation (no inference server required):**
+**Skill Loader verification (no inference server required):**
 
 ```bash
 python -m scripts.verify_skill_loader
 ```
 
-**Real-model integration verification (inference server required):**
+**Skill Activation verification (no inference server required):**
+
+```bash
+python -m scripts.verify_skill_activation
+```
+
+**Agent integration verification (running inference server required):**
 
 ```bash
 python -m scripts.verify_agent_integration
+```
+
+**Research Summary Skill integration verification (running inference server required):**
+
+```bash
+python -m scripts.verify_skill_integration
 ```
 
 ### Recorded Results
 
 | Verification | Observed result |
 |---|---|
-| Agent Harness unit tests | 7 passed |
-| Token-counter check | Short input: 24 tokens; oversized input: 12,009 tokens; both checks passed |
-| Skill Loader check | 3 checks passed |
-| Real-model integration | Nonempty response, conversation history, and reset checks passed; model recalled the synthetic codename `Cypress` |
+| Automated unit tests | 12 passed in 0.120 seconds: 7 harness tests and 5 skill activation tests |
+| Token-counter verification | Short input: 24 tokens; oversized input: 12,009 tokens; both checks passed |
+| Skill Loader verification | 3 checks passed |
+| Skill Activation verification | 6 checks passed using simulated model and token-counter components |
+| Real-model agent integration | Nonempty inference response, retained conversation history, and successful reset; Qwen3 recalled the synthetic codename `Cypress` |
+| Real-model skill integration | `research_summary` loaded; Qwen3 produced all five required sections for one synthetic study; reported F1 scores of 0.72 and 0.80 were preserved |
 
-These results describe individual verification runs, not continuous testing or a production reliability guarantee. See the linked technical documents for methodology, failure analysis, and limitations.
+These are results from specific verification runs, not continuous tests or evidence of production readiness. Skill-format compliance was automatically checked for the single synthetic study; its numerical content and limitations were reviewed manually.
 
 ## Technical Documentation
 
+- [System Architecture](docs/architecture.md) — components, responsibilities, and data flow.
 - [Local LLM Serving](docs/local-llm-serving.md) — model serving, environment configuration, and initial inference verification.
-- [Agent Harness](docs/agent-harness.md) — conversation state, token budgets, automated tests, and integration results.
-- [Skills and Dynamic Context](docs/skills-and-context.md) — skill file format, loader design, validation, and observed results.
-- [Troubleshooting](docs/troubleshooting.md) — compiler and CUDA toolkit setup failures and their resolutions.
+- [Agent Harness](docs/agent-harness.md) — conversation state, token budgets, tests, and integration results.
+- [Skills and Dynamic Context](docs/skills-and-context.md) — skill definitions, activation, regression tests, and real-model verification.
+- [Troubleshooting](docs/troubleshooting.md) — compiler and CUDA toolkit failures and their resolutions.
 
 ## Planned Work
 
-- Integrate explicit skill selection and activation into `AgentHarness`.
-- Expand skill coverage and add automated tests for skill behavior.
+- Expose explicit skill selection and deactivation through the interactive CLI.
+- Add more skills and evaluate instruction-following across multiple tasks and repeated trials.
 - Add bounded, permission-controlled tool execution.
 - Integrate Model Context Protocol (MCP) components.
 - Implement security guardrails, including prompt-injection testing and trust-boundary enforcement.
-- Expand evaluation, logging, and operational diagnostics.
+- Expand evaluation, structured logging, and operational diagnostics.
 
-The planned features are **not** represented as completed functionality.
+Planned features are not represented as completed functionality.

@@ -1,6 +1,7 @@
 
 from src.client.vllm_client import VLLMClient
 from src.agent.token_counter import TokenCounter
+from src.skills.skill_loader import Skill, SkillLoader
 
 
 SYSTEM_PROMPT = (
@@ -15,13 +16,35 @@ class AgentHarness:
     def __init__(self):
         self.model = VLLMClient()
         self.token_counter = TokenCounter()
+        self.skill_loader = SkillLoader()
 
-        self.messages = [
-            {
-                "role": "system",
-                "content": SYSTEM_PROMPT,
-            }
-        ]
+        self.active_skill: Skill | None = None
+
+        self.messages: list[dict[str, str]] = []
+        self.reset()
+
+    def _system_content(self) -> str:
+        if self.active_skill is None:
+            return SYSTEM_PROMPT
+
+        return (
+            f"{SYSTEM_PROMPT}\n\n"
+            f"Active skill: {self.active_skill.name}\n\n"
+            f"{self.active_skill.instructions}"
+        )
+
+    def activate_skill(self, skill_name: str) -> None:
+        # Load and validate before changing the active skill.
+        skill = self.skill_loader.load(skill_name)
+
+        self.active_skill = skill
+
+        # Start a new conversation using the selected skill.
+        self.reset()
+
+    def deactivate_skill(self) -> None:
+        self.active_skill = None
+        self.reset()
 
     def run(self, user_input: str) -> str:
         user_input = user_input.strip()
@@ -29,12 +52,10 @@ class AgentHarness:
         if not user_input:
             raise ValueError("User input cannot be empty.")
 
-        # Keep at most five previous exchanges.
         recent_history = self.messages[1:][
             -2 * (MAX_HISTORY_TURNS - 1):
         ]
 
-        # Prepare the next model request.
         pending_messages = [
             self.messages[0],
             *recent_history,
@@ -44,22 +65,18 @@ class AgentHarness:
             },
         ]
 
-        # Check the actual token budget.
+        # Remove older exchanges until the input fits.
         while not self.token_counter.fits(pending_messages):
-
-            # Only the system message and new user message remain.
             if len(pending_messages) == 2:
                 raise ValueError(
                     "Input exceeds the available token budget."
                 )
 
-            # Remove the oldest user/assistant exchange.
             del pending_messages[1:3]
 
-        # Call the model only after the input fits.
         response = self.model.chat(pending_messages)
 
-        # Save the conversation only after success.
+        # Update history only after successful inference.
         self.messages = [
             *pending_messages,
             {
@@ -74,6 +91,6 @@ class AgentHarness:
         self.messages = [
             {
                 "role": "system",
-                "content": SYSTEM_PROMPT,
+                "content": self._system_content(),
             }
         ]

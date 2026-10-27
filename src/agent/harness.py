@@ -3,6 +3,12 @@ from src.client.vllm_client import VLLMClient
 from src.agent.token_counter import TokenCounter
 from src.skills.skill_loader import Skill, SkillLoader
 
+from src.tools.executor import ToolExecutor
+from src.tools.definitions import SUMMARIZE_MEASUREMENTS_DEFINITION
+from src.tools.statistics_tool import summarize_measurements
+from src.agent.tool_loop import run_tool_turn
+
+from src.agent.response_formatter import clean_model_response
 
 SYSTEM_PROMPT = (
     "You are a concise AI systems assistant. "
@@ -17,6 +23,16 @@ class AgentHarness:
         self.model = VLLMClient()
         self.token_counter = TokenCounter()
         self.skill_loader = SkillLoader()
+
+        self.tool_executor = ToolExecutor()
+
+        self.tool_executor.register(
+            definition=SUMMARIZE_MEASUREMENTS_DEFINITION,
+            handler=summarize_measurements,
+        )
+
+        # Preserve existing chat behavior until tool mode is enabled.
+        self.tools_enabled = False
 
         self.active_skill: Skill | None = None
 
@@ -46,6 +62,14 @@ class AgentHarness:
         self.active_skill = None
         self.reset()
 
+    def set_tool_mode(self, enabled: bool) -> None:
+        """Enable or disable tool calling for subsequent requests."""
+
+        if not isinstance(enabled, bool):
+            raise TypeError("Tool mode must be a boolean.")
+
+        self.tools_enabled = enabled
+
     def run(self, user_input: str) -> str:
         user_input = user_input.strip()
 
@@ -74,7 +98,18 @@ class AgentHarness:
 
             del pending_messages[1:3]
 
-        response = self.model.chat(pending_messages)
+        if self.tools_enabled:
+            response = run_tool_turn(
+                client=self.model.client,
+                model=self.model.model,
+                messages=pending_messages,
+                executor=self.tool_executor,
+            )
+        else:
+            response = self.model.chat(pending_messages)
+
+        # Remove Qwen3 thinking blocks before storing or returning.
+        response = clean_model_response(response)
 
         # Update history only after successful inference.
         self.messages = [

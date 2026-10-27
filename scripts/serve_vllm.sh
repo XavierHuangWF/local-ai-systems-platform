@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
 
+#!/usr/bin/env bash
 set -euo pipefail
 
 vllm serve Qwen/Qwen3-8B-AWQ \
@@ -8,4 +8,6 @@ vllm serve Qwen/Qwen3-8B-AWQ \
   --port 8000 \
   --api-key local-dev-key \
   --max-model-len 8192 \
-  --gpu-memory-utilization 0.85
+  --gpu-memory-utilization 0.85 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes

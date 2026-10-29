@@ -28,12 +28,16 @@ class VLLMClient:
             max_retries=2,
         )
 
-    def chat(self, messages: list[dict[str, str]]) -> str:
+    def chat(
+            self,
+            messages: list[dict[str, str]],
+            max_tokens: int = 512,
+    ) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=messages,
             temperature=0.7,
-            max_tokens=512,
+            max_tokens=max_tokens,
         )
 
         content = response.choices[0].message.content

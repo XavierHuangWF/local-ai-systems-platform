@@ -1,0 +1,78 @@
+
+{
+  "grading_scale": {
+    "0": "Irrelevant, unsuitable, or outdated evidence",
+    "1": "Related background",
+    "2": "Useful but incomplete supporting evidence",
+    "3": "Direct, important evidence"
+  },
+  "questions": [
+    {
+      "id": "q1",
+      "question": "How does the Agent Harness manage conversation history and prevent oversized prompts?",
+      "judgments": {
+        "agent-harness.md::0004": 3,
+        "agent-harness.md::0007": 3,
+        "agent-harness.md::0015": 2,
+        "agent-harness.md::0010": 2,
+        "agent-harness.md::0009": 2,
+        "agent-harness.md::0012": 1,
+        "architecture.md::0004": 3
+      }
+    },
+    {
+      "id": "q2",
+      "question": "How are skills loaded and activated in the Agent Harness?",
+      "judgments": {
+        "skills-and-context.md::0002": 3,
+        "skills-and-context.md::0005": 3,
+        "skills-and-context.md::0025": 1,
+        "skills-and-context.md::0009": 2,
+        "skills-and-context.md::0019": 1,
+        "architecture.md::0002": 0,
+        "skills-and-context.md::0001": 2,
+        "architecture.md::0008": 0,
+        "skills-and-context.md::0030": 2
+      }
+    },
+    {
+      "id": "q3",
+      "question": "What caused the FlashInfer CUDA compilation problem, and how was it resolved?",
+      "judgments": {
+        "troubleshooting.md::0006": 2,
+        "troubleshooting.md::0007": 3,
+        "troubleshooting.md::0008": 3,
+        "troubleshooting.md::0010": 3,
+        "troubleshooting.md::0005": 1
+      },
+      "required_evidence": [
+        "troubleshooting.md::0007",
+        "troubleshooting.md::0008"
+      ]
+    },
+    {
+      "id": "q4",
+      "question": "How does ToolExecutor validate tool arguments before executing registered Python functions?",
+      "judgments": {
+        "tool-execution.md::0004": 3,
+        "tool-execution.md::0015": 3,
+        "tool-execution.md::0005": 2,
+        "tool-execution.md::0009": 2,
+        "tool-execution.md::0001": 1
+      }
+    },
+    {
+      "id": "q5",
+      "question": "How does the system remove Qwen3 thinking tags from final responses?",
+      "judgments": {
+        "tool-execution.md::0003": 1,
+        "tool-execution.md::0006": 3,
+        "tool-execution.md::0012": 2,
+        "agent-harness.md::0011": 1,
+        "tool-execution.md::0011": 0,
+        "tool-execution.md::0001": 2,
+        "skills-and-context.md::0030": 1
+      }
+    }
+  ]
+}

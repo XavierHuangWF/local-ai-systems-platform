@@ -238,6 +238,7 @@ class AgentHarness:
                 messages=request_messages,
                 executor=self.tool_executor,
                 max_rounds=2,
+                token_counter=self.token_counter,
             )
 
         else:

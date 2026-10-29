@@ -50,3 +50,20 @@ class TokenCounter:
 
         return input_tokens <= available_tokens
 
+
+    def count_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> int:
+        """Count formatted messages including registered tool schemas."""
+
+        encoded = self.tokenizer.apply_chat_template(
+            messages,
+            tools=tools,
+            tokenize=True,
+            add_generation_prompt=True,
+            return_dict=True,
+        )
+
+        return len(encoded["input_ids"])

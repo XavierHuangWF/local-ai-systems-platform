@@ -6,6 +6,8 @@ from openai import OpenAI
 
 from src.client.tool_calling import request_with_tools
 from src.tools.executor import ToolExecutor
+
+from src.agent.token_counter import TokenCounter
 import logging
 
 MAX_TOOL_CALLS = 3
@@ -18,6 +20,7 @@ def run_tool_turn(
     messages: list[dict[str, Any]],
     executor: ToolExecutor,
     max_rounds: int = 1,
+    token_counter: TokenCounter | None = None,
 ) -> str:
     """Execute up to max_rounds model-directed tool-selection rounds.
 
@@ -42,6 +45,28 @@ def run_tool_turn(
     updated_messages = list(messages)
 
     for round_number in range(1, max_rounds + 1):
+
+
+        # Count the complete request, including tool definitions
+        # and results from previous execution rounds.
+        if token_counter is not None:
+            input_tokens = token_counter.count_with_tools(
+                updated_messages,
+                tools,
+            )
+
+            available_tokens = (
+                token_counter.max_context_tokens
+                - token_counter.reserved_output_tokens
+            )
+
+            if input_tokens > available_tokens:
+                raise ValueError(
+                    "Tool request exceeds the context budget: "
+                    f"{input_tokens} tokens used, "
+                    f"{available_tokens} available."
+                )
+
         # Allow Qwen3 to choose new tools using previous tool results.
         assistant = request_with_tools(
             client=client,
@@ -50,7 +75,7 @@ def run_tool_turn(
             tools=tools,
         )
         tool_calls = assistant.tool_calls or []
-        
+
         logger = logging.getLogger("local_ai.tool_execution")
 
         if tool_calls:
@@ -120,6 +145,24 @@ def run_tool_turn(
                     "tool_call_id": call.id,
                     "content": json.dumps(result, allow_nan=False),
                 }
+            )
+
+    # The final request does not include tool definitions.
+    if token_counter is not None:
+        final_input_tokens = token_counter.count(
+            updated_messages
+        )
+
+        available_tokens = (
+            token_counter.max_context_tokens
+            - token_counter.reserved_output_tokens
+        )
+
+        if final_input_tokens > available_tokens:
+            raise ValueError(
+                "Final tool response exceeds the context budget: "
+                f"{final_input_tokens} tokens used, "
+                f"{available_tokens} available."
             )
 
     # The maximum number of tool-selection rounds has been reached.

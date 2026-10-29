@@ -4,9 +4,9 @@
 
 Build a local Large Language Model (LLM) agent that can request approved Python functions, validate their arguments, execute them, and incorporate results into a final answer. Keep model inference, tool definitions, validation, execution, conversation management, and presentation as separate components.
 
-**Current implementation:** The interactive `AgentHarness` supports optional tool calling through `/tools on` and `/tools off`. A live `Qwen/Qwen3-8B-AWQ` session successfully requested the registered `summarize_measurements` function; the Python executor logged its successful execution; and Qwen3 produced the correct answer. A subsequent conversational turn also recalled a previously computed mean. Leading Qwen3 `<think>...</think>` blocks are removed before answers are returned or saved to conversation history.
+**Current implementation:** The interactive `AgentHarness` supports optional tool calling through `/tools on` and `/tools off`. Qwen3 can choose between the registered `summarize_measurements` and `search_project_documents` tools. The harness requests up to two tool-selection rounds; the tool loop permits at most three rounds and three calls per round. A live sequential experiment retrieved `[13, 25, 61, 92]` from project documentation in round 1, then executed the statistics tool in round 2, correctly returning mean **47.75**. Context checks now account for registered tool definitions and accumulated tool messages before further model requests. Leading Qwen3 `<think>...</think>` blocks are removed before answers are returned or stored in history.
 
-**Automated regression evidence:** The latest *captured, complete* terminal result is **84 tests passed in 0.450 seconds**. Four additional logging tests were subsequently created, bringing the expected discovery count to **88**; their final full-suite output should be confirmed and recorded before claiming 88 passed. Earlier test totals are historical milestones, not additional tests.
+**Automated regression evidence:** The latest observed full-suite terminal result was **88 tests passed in 0.373 seconds** (`OK`) after enabling tool-aware context-budget checks. Earlier totals below are historical milestones, not additional tests.
 
 The results demonstrate the tested workflows, **not** general tool-choice reliability, authorization, sandbox isolation, or safe execution of arbitrary tools.
 
@@ -38,10 +38,13 @@ src/agent/harness.py: AgentHarness.run()
                             |               |                       |
                             |               v                       |
                             |       summarize_measurements()        |
+                            |       search_project_documents()      |
                             |               |                       |
                             |       successful execution log       |
                             |               |                       |
                             +--> tool result + tool_call_id         |
+                            +--> check tool-aware context budget    |
+                            +--> next decision (up to 2 rounds)     |
                             +--> Qwen3 final response --------------+
                                                                     |
                                                                     v
@@ -60,14 +63,15 @@ src/agent/harness.py: AgentHarness.run()
 | `scripts/serve_vllm.sh` | Launches the locally served Qwen3 model with automatic tool calling enabled |
 | `src/client/vllm_client.py` | Configures the OpenAI-compatible client and implements ordinary chat |
 | `src/client/tool_calling.py` | Sends tool definitions to the model and preserves structured tool requests |
-| `src/tools/definitions.py` | Declares the `summarize_measurements` tool and its argument schema |
+| `src/tools/definitions.py` | Declares `summarize_measurements` and `search_project_documents` with JSON argument schemas |
 | `src/tools/validator.py` | Validates arguments using `jsonschema` Draft 2020-12 |
 | `src/tools/registry.py` | Stores approved Python functions and dispatches by registered name |
 | `src/tools/statistics_tool.py` | Computes count, arithmetic mean, minimum, and maximum |
+| `src/tools/document_search_tool.py` | Provides document retrieval via the existing hybrid retriever, loading it lazily |
 | `src/tools/executor.py` | Registers schemas and handlers; validates and dispatches tool requests; logs successful execution |
-| `src/agent/tool_loop.py` | Coordinates model request, tool execution, tool-result message, and final model response |
+| `src/agent/tool_loop.py` | Coordinates bounded sequential tool rounds, tool-result messages, context checks, and final answer generation |
 | `src/agent/response_formatter.py` | Removes complete leading thinking blocks and rejects malformed or empty final answers |
-| `src/agent/harness.py` | Manages history, skills, token-budget checks, optional tool mode, and cleaned responses |
+| `src/agent/harness.py` | Manages history, skills, token-budget checks, optional tool mode and automatic RAG mode, and cleaned responses |
 | `src/agent/cli.py` | Provides interactive prompts, tool-mode controls, and execution-log output |
 
 ### Tool registration and argument validation
@@ -80,13 +84,13 @@ src/agent/harness.py: AgentHarness.run()
 
 `run_tool_turn()` submits registered tool definitions using `tool_choice="auto"`. If the model returns ordinary text, the tool is not executed. Otherwise, the function parses tool-call arguments, invokes `ToolExecutor`, adds tool-result messages with matching `tool_call_id` values, and requests a final answer from Qwen3.
 
-The current implementation supports **one tool-calling round**, with a maximum of **three tool calls in that round**. It does not implement an indefinite planning loop. The original input message list is not modified by `run_tool_turn()`. When a request fails before the final answer, `AgentHarness` does not commit a new conversation turn. However, multiple requested tools are **not transactional**: a preceding tool may have already executed before a subsequent tool fails.
+The `run_tool_turn()` function supports **up to three bounded tool-selection rounds**, with at most **three tool calls per round**. Its default is one round for compatibility, while `AgentHarness` currently requests **two rounds**. After each round, Qwen3 may examine prior tool results and request further tools. The original input message list is not modified. When a request fails before the final answer, `AgentHarness` does not commit a new conversation turn. However, tool calls are **not transactional**: a preceding handler may already have executed before a subsequent failure.
 
 ### Agent Harness and response formatting
 
 `AgentHarness` uses normal chat by default. `set_tool_mode(True)` enables the validated tool loop; `set_tool_mode(False)` restores the original chat path. Its existing skill activation, conversation history (up to six turns), reset behavior, and input token-budget management are retained.
 
-`clean_model_response()` removes complete **leading** `<think>...</think>` blocks, rejects unexpected/malformed thinking tags, and refuses empty final answers. It is applied before storing the assistant's reply. This is **output filtering**, not a guarantee that every form of sensitive or unwanted model output is detected. The input budget currently does not fully account for tool definitions and intermediate tool-result messages.
+`clean_model_response()` removes complete **leading** `<think>...</think>` blocks, rejects unexpected/malformed thinking tags, and refuses empty final answers. It is applied before storing the assistant's reply. This is **output filtering**, not a guarantee that every form of sensitive or unwanted model output is detected. Tool-aware input checks now include tool definitions and accumulated intermediate messages before model requests; oversized tool results are rejected rather than summarized or truncated.
 
 ### Interactive controls and observability
 
@@ -97,6 +101,9 @@ The command-line interface supports:
 | `/tools on` | Enable tool calling |
 | `/tools off` | Disable tool calling |
 | `/tools status` | Show the current tool mode |
+| `/rag on` | Enable automatic document retrieval (separate from tool mode) |
+| `/rag off` | Disable automatic retrieval |
+| `/rag status` | Show the current RAG mode |
 | `/reset` | Clear conversation history |
 | `/help` | Show available commands |
 | `/exit` | End the session |
@@ -242,7 +249,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 | Harness response formatting | 75 tests in 0.410s — `OK` |
 | Interactive CLI | **84 tests in 0.450s — `OK`** |
 
-After that last captured full-suite result, `tests/test_tool_logging.py` was added with four further cases. **Expected current count: 88.** Confirm the actual final `Ran ... tests` and `OK` output and update this line before treating 88 as a verified result; test creation by itself is not a passing result.
+The four additional logging cases brought the discovered suite to 88 tests. The latest observed full-suite run after the multi-round context changes reported **88 tests in 0.373s — `OK`**. These are regression checks; live model behavior and oversized-context rejection were verified separately through dedicated experiment scripts.
 
 ## Engineering findings
 
@@ -257,17 +264,15 @@ After that last captured full-suite result, `tests/test_tool_logging.py` was add
 
 1. **Reliability:** Only a small number of real numerical requests have been demonstrated. Tool-selection accuracy has not been benchmarked across diverse prompts.
 2. **Security:** Registered handlers execute in the current Python process, with its permissions. Registration and schema validation do not constitute a sandbox, caller authorization, or protection against malicious registered code.
-3. **Resource control:** No general execution timeouts, process isolation, or per-tool permission policy are implemented. Tool definitions and intermediate results are not fully included in input token-budget checks.
-4. **Execution semantics:** At most three calls are allowed in a single tool-calling round. Calls are not atomic; effects of earlier successful calls cannot necessarily be undone if a later call fails.
+3. **Resource control:** No general execution timeouts, process isolation, or per-tool permission policy are implemented. Tool-aware token-budget checks include tool definitions and intermediate messages before model calls, but oversized tool results are not automatically shortened.
+4. **Execution semantics:** The harness allows up to two sequential tool-selection rounds with at most three calls per round (the tool loop permits at most three rounds when configured). Calls are not atomic; effects of earlier successful calls cannot necessarily be undone if a later call fails.
 5. **Response filtering:** Removing leading `<think>` blocks improves presentation but is not a general-purpose content-safety or confidentiality guarantee.
 6. **Server stability:** One HTTP 500 / `EngineCore` failure was observed, followed by a successful retry without a confirmed root cause.
-7. **Scope:** Only the `summarize_measurements` function has been exercised live. There is no general database, document-retrieval, or file-access tool yet.
+7. **Scope:** Both `summarize_measurements` and `search_project_documents` have been exercised live, including in a sequential two-round workflow. There is no general database or unrestricted file-access tool.
 
 ## Next engineering direction
 
-The interactive tool-enabled agent is functional for the verified scenario. Subsequent practice should prioritize **new, useful capabilities and real experiments** rather than a separate cluster of unit tests for every small implementation change. A practical next stage is retrieval-augmented generation (RAG) over local documents, using the same separation between model requests and approved application tools.
-
-Before the Day 4 commit, run the current regression suite once and record its actual final status, then stage the intended source, scripts, tests, and documentation while excluding environments, caches, and generated logs.
+The agent now supports document retrieval as a tool, sequential tool selection, and context-budget rejection between rounds. Subsequent work should prioritize practical improvements, such as constraining excessively large tool results before they enter the conversation, verifying source attribution, and measuring multi-step tool-selection reliability on varied questions. The verified experiments, limitations, and regression results are recorded below.
 
 
 
@@ -369,8 +374,8 @@ PASS: Live sequential tool execution verification completed.
 
 - One successful live run does not establish general reliability.
 - Model-directed tool selection can vary between runs.
-- Tool results and intermediate messages are not yet subjected
-  to comprehensive dynamic context-budget validation.
+- Tool-aware context checks now run before model requests, but
+  oversized tool results are rejected instead of truncated or summarized.
 - Tool execution is not transactional; earlier tool side effects
   are not automatically rolled back if a later operation fails.
 - Document search results can contain irrelevant or outdated
@@ -379,4 +384,106 @@ PASS: Live sequential tool execution verification completed.
 - The current Agent Harness keeps automatic RAG mode and
   tool-calling mode separate. Document search is available
   as a registered tool when tool calling is enabled.
+
+## Multi-Round Tool Context Budget Enforcement
+
+### Objective
+
+Prevent accumulated tool requests, document-search results,
+and intermediate messages from exceeding Qwen3's configured
+8,192-token context window.
+
+### Implementation
+
+Updated components:
+
+- `src/agent/token_counter.py`
+- `src/agent/tool_loop.py`
+- `src/agent/harness.py`
+
+Added `TokenCounter.count_with_tools()` to measure formatted
+conversation messages together with registered tool definitions.
+
+The tool loop checks context usage before each model request,
+including requests after previous tool executions.
+
+The current configuration reserves 512 output tokens, leaving
+a maximum of 7,680 input tokens.
+
+### Token-Counting Experiment
+
+Command:
+
+```bash
+python -m scripts.inspect_tool_context
 ```
+
+Observed results:
+
+| Stage | Message-only tokens | Tool-aware tokens |
+|---|---:|---:|
+| Initial request | 39 | 409 |
+| After document search | 732 | 1,102 |
+| After statistics | 815 | 1,185 |
+
+Registered tool definitions added approximately 370 tokens
+to the formatted requests in this experiment.
+
+### Live Sequential Tool Verification
+
+Command:
+
+```bash
+python -m scripts.verify_live_sequential_tools
+```
+
+The experiment completed successfully after the context
+checks were enabled.
+
+Observed execution order:
+
+1. Round 1: `search_project_documents`
+2. Round 2: `summarize_measurements`
+
+The retrieved measurements were `[13, 25, 61, 92]`.
+
+The Python statistics tool returned count 4, mean 47.75,
+minimum 13.0, and maximum 92.0.
+
+All recorded live verification checks passed.
+
+### Oversized Context Verification
+
+Command:
+
+```bash
+python -m scripts.verify_tool_context_overflow
+```
+
+Observed result:
+
+```text
+Tool request exceeds the context budget:
+30363 tokens used, 7680 available.
+
+PASS: Oversized context was rejected.
+PASS: No second model request was made.
+PASS: Context overflow verification completed.
+```
+
+The test used an intentionally oversized simulated
+document-search result and did not require vLLM inference.
+
+### Engineering Findings and Limitations
+
+- Context counting must include registered tool definitions.
+- Token usage grows as tool requests and results accumulate.
+- Requests exceeding the configured budget are rejected
+  before the next model completion.
+- Oversized tool results are not automatically truncated.
+- Tool execution may have occurred before an overflow is
+  detected; tool side effects are not transactional.
+- Final-answer length and citation accuracy still require
+  separate evaluation.
+- The tests establish the observed behavior of these
+  scenarios, not comprehensive reliability under all inputs.

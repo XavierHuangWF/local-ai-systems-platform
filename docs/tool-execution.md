@@ -268,3 +268,115 @@ After that last captured full-suite result, `tests/test_tool_logging.py` was add
 The interactive tool-enabled agent is functional for the verified scenario. Subsequent practice should prioritize **new, useful capabilities and real experiments** rather than a separate cluster of unit tests for every small implementation change. A practical next stage is retrieval-augmented generation (RAG) over local documents, using the same separation between model requests and approved application tools.
 
 Before the Day 4 commit, run the current regression suite once and record its actual final status, then stage the intended source, scripts, tests, and documentation while excluding environments, caches, and generated logs.
+
+
+
+## Multi-Round Agent Tool Orchestration
+
+### Objective
+
+Extend the original single-round tool loop to support
+sequential model-directed tool execution.
+
+The agent should retrieve project documentation, inspect
+the retrieved information, and then decide whether another
+tool call is necessary.
+
+### Implementation
+
+**Files:**
+
+- `src/agent/tool_loop.py`
+- `src/agent/harness.py`
+- `src/tools/document_search_tool.py`
+- `src/tools/definitions.py`
+- `scripts/verify_live_sequential_tools.py`
+
+The updated `run_tool_turn()` supports:
+
+- Configurable tool-selection rounds.
+- Maximum 3 rounds.
+- Maximum 3 tool calls per round.
+- JSON argument parsing and validation through `ToolExecutor`.
+- Tool results returned to Qwen3 between rounds.
+- Final-answer generation after the allowed rounds.
+- Tool-round execution logging.
+
+The Agent Harness currently specifies `max_rounds=2`.
+
+### Reproducible Live Experiment
+
+**Command:**
+
+```bash
+python -m scripts.verify_live_sequential_tools
+```
+
+**Question:**
+
+Search the project documentation for the four measurements
+used in the live multi-turn Agent Harness verification.
+Retrieve those values before calculating their statistics.
+
+**Observed tool sequence:**
+
+```text
+Round 1 requested: search_project_documents
+Executed tool: search_project_documents
+Round 2 requested: summarize_measurements
+Executed tool: summarize_measurements
+```
+
+**Retrieved measurements:**
+
+`[13, 25, 61, 92]`
+
+**Calculated results:**
+
+| Metric | Result |
+|---|---:|
+| Count | 4 |
+| Mean | 47.75 |
+| Minimum | 13.0 |
+| Maximum | 92.0 |
+
+**Document cited:**
+
+`tool-execution.md`
+
+Section: Live multi-turn Agent Harness experiment.
+
+**Verification output:**
+
+```text
+PASS: Sequential tool execution confirmed.
+PASS: Expected mean 47.75 confirmed.
+PASS: Expected document source identified.
+
+PASS: Live sequential tool execution verification completed.
+```
+
+### Engineering Findings
+
+1. Qwen3 selected document retrieval during the first round.
+2. Retrieved information was available for the next model decision.
+3. Qwen3 selected the statistics tool in the second round.
+4. The Python statistics handler produced the expected values.
+5. Round-level logging distinguished sequential tool selection
+   from multiple tool requests within a single round.
+
+### Limitations
+
+- One successful live run does not establish general reliability.
+- Model-directed tool selection can vary between runs.
+- Tool results and intermediate messages are not yet subjected
+  to comprehensive dynamic context-budget validation.
+- Tool execution is not transactional; earlier tool side effects
+  are not automatically rolled back if a later operation fails.
+- Document search results can contain irrelevant or outdated
+  information.
+- Source citation correctness is not automatically verified.
+- The current Agent Harness keeps automatic RAG mode and
+  tool-calling mode separate. Document search is available
+  as a registered tool when tool calling is enabled.
+```

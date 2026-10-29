@@ -46,3 +46,43 @@ SUMMARIZE_MEASUREMENTS_DEFINITION = ToolDefinition(
         "additionalProperties": False,
     },
 )
+
+
+
+DOCUMENT_SEARCH_DEFINITION = ToolDefinition(
+    name="search_project_documents",
+    description=(
+        "Search the local AI Systems Platform documentation "
+        "for implementation details, architecture, configuration, "
+        "troubleshooting, and verified experiment results. "
+        "Use this tool when the user asks about the project's "
+        "code, design, or documented behavior. "
+        "Returns relevant passages with source identifiers."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": (
+                    "A specific search question or phrase "
+                    "describing the information to retrieve."
+                ),
+                "minLength": 1,
+                "maxLength": 500,
+            },
+            "top_k": {
+                "type": "integer",
+                "description": (
+                    "Maximum number of document passages "
+                    "to retrieve. Defaults to 4."
+                ),
+                "minimum": 1,
+                "maximum": 6,
+                "default": 4,
+            },
+        },
+        "required": ["query"],
+        "additionalProperties": False,
+    },
+)

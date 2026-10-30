@@ -581,3 +581,81 @@ All live verification checks passed.
   many tokens.
 - One successful live run does not establish general
   tool-selection or answer-generation reliability.
+
+
+
+## Retrieved Source Attribution Verification
+
+### Objective
+
+Check whether document references in Qwen3-generated answers
+correspond to evidence actually returned by document search.
+
+This verifies source provenance, not factual claim support.
+
+### Implementation
+
+Updated components:
+
+- `src/agent/source_attribution.py`
+- `src/agent/tool_loop.py`
+
+The attribution checker:
+
+- Extracts Markdown filenames and optional chunk identifiers.
+- Matches filenames against retrieved document sources.
+- Matches chunk identifiers against retrieved chunk IDs.
+- Reports unsupported or fabricated references.
+- Logs results after final answer generation.
+- Preserves existing multi-round tool execution.
+
+### Reproducible Verification
+
+Command:
+
+    python -m scripts.verify_source_attribution
+
+Observed results:
+
+| Reference | Result |
+|---|---|
+| `tool-execution.md::0004` | Matched |
+| `architecture.md` | Matched |
+| `nonexistent.md::9999` | Unsupported |
+| `tool-execution.md::9999` | Unsupported |
+
+All three verification checks passed.
+
+### Live Qwen3 Verification
+
+Command:
+
+    python -m scripts.verify_live_sequential_tools
+
+Observed execution:
+
+1. Round 1: `search_project_documents`
+2. Round 2: `summarize_measurements`
+3. Attribution check matched `tool-execution.md`.
+
+The calculated mean was 47.75.
+
+### Regression Verification
+
+Command:
+
+    python -m unittest discover -s tests -p "test_*.py"
+
+Observed result:
+
+    Ran 88 tests in 0.439s
+    OK
+
+### Limitations
+
+- Matching a source identifier does not prove factual support.
+- The checker detects recognizable Markdown references, not
+  every possible citation format.
+- Ordinary filename mentions may also be classified as references.
+- Unsupported references are logged, not automatically removed.
+- Citation-to-claim semantic verification is not implemented.

@@ -10,8 +10,45 @@ from src.tools.executor import ToolExecutor
 from src.agent.token_counter import TokenCounter
 import logging
 
+from src.agent.source_attribution import check_source_attribution
+
 MAX_TOOL_CALLS = 3
 MAX_TOOL_ROUNDS = 3
+
+
+def report_source_attribution(
+    answer: str,
+    passages: list[dict],
+) -> None:
+    """Log whether answer references match retrieved evidence."""
+
+    if not passages:
+        return
+
+    result = check_source_attribution(
+        answer=answer,
+        passages=passages,
+    )
+
+    logger = logging.getLogger("local_ai.tool_execution")
+
+    if result.matched:
+        logger.info(
+            "Source references matched retrieved passages: %s",
+            ", ".join(result.matched),
+        )
+
+    if result.unsupported:
+        logger.warning(
+            "Unsupported source references: %s",
+            ", ".join(result.unsupported),
+        )
+
+    if not result.referenced:
+        logger.warning(
+            "Document search was used, but no Markdown "
+            "source reference was found in the answer."
+        )
 
 
 def run_tool_turn(
@@ -43,6 +80,8 @@ def run_tool_turn(
         raise ValueError("No tools are registered.")
 
     updated_messages = list(messages)
+    retrieved_passages: list[dict] = []
+
 
     for round_number in range(1, max_rounds + 1):
 
@@ -101,6 +140,10 @@ def run_tool_turn(
                 raise RuntimeError(
                     "Model returned neither text nor tool calls."
                 )
+            report_source_attribution(
+                assistant.content,
+                retrieved_passages,
+            )
             return assistant.content
 
         if len(tool_calls) > MAX_TOOL_CALLS:
@@ -138,6 +181,21 @@ def run_tool_turn(
                 name=call.function.name,
                 arguments=arguments,
             )
+
+            # Collect evidence actually returned by document search.
+            if (
+                call.function.name == "search_project_documents"
+                and isinstance(result, dict)
+            ):
+                passages = result.get("passages", [])
+
+                if isinstance(passages, list):
+                    retrieved_passages.extend(
+                        passage
+                        for passage in passages
+                        if isinstance(passage, dict)
+                    )
+
 
             updated_messages.append(
                 {
@@ -188,5 +246,10 @@ def run_tool_turn(
         raise RuntimeError(
             "Model returned an empty final answer."
         )
+
+    report_source_attribution(
+        final_message.content,
+        retrieved_passages,
+    )
 
     return final_message.content

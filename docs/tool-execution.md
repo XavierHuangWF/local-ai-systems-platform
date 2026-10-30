@@ -4,9 +4,9 @@
 
 Build a local Large Language Model (LLM) agent that can request approved Python functions, validate their arguments, execute them, and incorporate results into a final answer. Keep model inference, tool definitions, validation, execution, conversation management, and presentation as separate components.
 
-**Current implementation:** The interactive `AgentHarness` supports optional tool calling through `/tools on` and `/tools off`. Qwen3 can choose between the registered `summarize_measurements` and `search_project_documents` tools. The harness requests up to two tool-selection rounds; the tool loop permits at most three rounds and three calls per round. A live sequential experiment retrieved `[13, 25, 61, 92]` from project documentation in round 1, then executed the statistics tool in round 2, correctly returning mean **47.75**. Context checks now account for registered tool definitions and accumulated tool messages before further model requests. Leading Qwen3 `<think>...</think>` blocks are removed before answers are returned or stored in history.
+**Current implementation:** The interactive `AgentHarness` supports optional tool calling through `/tools on` and `/tools off`. Qwen3 can choose between the registered `summarize_measurements` and `search_project_documents` tools. The harness requests up to two tool-selection rounds; the tool loop permits at most three rounds and three calls per round. A live sequential experiment retrieved `[13, 25, 61, 92]` from project documentation in round 1, then executed the statistics tool in round 2, correctly returning mean **47.75**. Context checks now account for registered tool definitions and accumulated tool messages before further model requests. Document search limits serialized evidence to 2,500 tokens, omitting passages that do not fit. Leading Qwen3 `<think>...</think>` blocks are removed before answers are returned or stored in history.
 
-**Automated regression evidence:** The latest observed full-suite terminal result was **88 tests passed in 0.373 seconds** (`OK`) after enabling tool-aware context-budget checks. Earlier totals below are historical milestones, not additional tests.
+**Automated regression evidence:** The latest observed full-suite terminal result was **88 tests passed in 0.462 seconds** (`OK`) after adding bounded document-search results. Earlier totals below are historical milestones, not additional tests.
 
 The results demonstrate the tested workflows, **not** general tool-choice reliability, authorization, sandbox isolation, or safe execution of arbitrary tools.
 
@@ -67,7 +67,7 @@ src/agent/harness.py: AgentHarness.run()
 | `src/tools/validator.py` | Validates arguments using `jsonschema` Draft 2020-12 |
 | `src/tools/registry.py` | Stores approved Python functions and dispatches by registered name |
 | `src/tools/statistics_tool.py` | Computes count, arithmetic mean, minimum, and maximum |
-| `src/tools/document_search_tool.py` | Provides document retrieval via the existing hybrid retriever, loading it lazily |
+| `src/tools/document_search_tool.py` | Uses the hybrid retriever with lazy initialization and a 2,500-token serialized evidence limit |
 | `src/tools/executor.py` | Registers schemas and handlers; validates and dispatches tool requests; logs successful execution |
 | `src/agent/tool_loop.py` | Coordinates bounded sequential tool rounds, tool-result messages, context checks, and final answer generation |
 | `src/agent/response_formatter.py` | Removes complete leading thinking blocks and rejects malformed or empty final answers |
@@ -90,7 +90,7 @@ The `run_tool_turn()` function supports **up to three bounded tool-selection rou
 
 `AgentHarness` uses normal chat by default. `set_tool_mode(True)` enables the validated tool loop; `set_tool_mode(False)` restores the original chat path. Its existing skill activation, conversation history (up to six turns), reset behavior, and input token-budget management are retained.
 
-`clean_model_response()` removes complete **leading** `<think>...</think>` blocks, rejects unexpected/malformed thinking tags, and refuses empty final answers. It is applied before storing the assistant's reply. This is **output filtering**, not a guarantee that every form of sensitive or unwanted model output is detected. Tool-aware input checks now include tool definitions and accumulated intermediate messages before model requests; oversized tool results are rejected rather than summarized or truncated.
+`clean_model_response()` removes complete **leading** `<think>...</think>` blocks, rejects unexpected/malformed thinking tags, and refuses empty final answers. It is applied before storing the assistant's reply. This is **output filtering**, not a guarantee that every form of sensitive or unwanted model output is detected. Tool-aware input checks include tool definitions and accumulated intermediate messages. Document search independently limits its serialized result to 2,500 tokens by omitting passages that do not fit. Other oversized tool results can still trigger full-context rejection.
 
 ### Interactive controls and observability
 
@@ -108,7 +108,7 @@ The command-line interface supports:
 | `/help` | Show available commands |
 | `/exit` | End the session |
 
-The dedicated `local_ai.tool_execution` logger emits `[Tool] Executed tool: summarize_measurements` **after** a registered handler returns successfully. It records the function name rather than the user's measurement values. A successful log establishes that the Python function ran; a correct generated answer alone would not establish that fact. The current logger is diagnostic observability, not an audit-grade authorization mechanism.
+The dedicated `local_ai.tool_execution` logger emits messages such as `[Tool] Executed tool: summarize_measurements` and `[Tool] Executed tool: search_project_documents` **after** the corresponding registered handler returns successfully. It records the function name rather than the user's measurement values. A successful log establishes that the Python function ran; a correct generated answer alone would not establish that fact. The current logger is diagnostic observability, not an audit-grade authorization mechanism.
 
 ## Environment and reproduction
 
@@ -249,7 +249,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 | Harness response formatting | 75 tests in 0.410s — `OK` |
 | Interactive CLI | **84 tests in 0.450s — `OK`** |
 
-The four additional logging cases brought the discovered suite to 88 tests. The latest observed full-suite run after the multi-round context changes reported **88 tests in 0.373s — `OK`**. These are regression checks; live model behavior and oversized-context rejection were verified separately through dedicated experiment scripts.
+The four additional logging cases brought the discovered suite to 88 tests. The latest observed full-suite run after bounded document search reported **88 tests in 0.462s — `OK`**. These are regression checks; live model behavior and oversized-context rejection were verified separately through dedicated experiment scripts.
 
 ## Engineering findings
 
@@ -264,7 +264,7 @@ The four additional logging cases brought the discovered suite to 88 tests. The 
 
 1. **Reliability:** Only a small number of real numerical requests have been demonstrated. Tool-selection accuracy has not been benchmarked across diverse prompts.
 2. **Security:** Registered handlers execute in the current Python process, with its permissions. Registration and schema validation do not constitute a sandbox, caller authorization, or protection against malicious registered code.
-3. **Resource control:** No general execution timeouts, process isolation, or per-tool permission policy are implemented. Tool-aware token-budget checks include tool definitions and intermediate messages before model calls, but oversized tool results are not automatically shortened.
+3. **Resource control:** No general execution timeouts, process isolation, or per-tool permission policy are implemented. Document search has a 2,500-token evidence limit, but there is no generic result truncation or summarization mechanism for other registered tools.
 4. **Execution semantics:** The harness allows up to two sequential tool-selection rounds with at most three calls per round (the tool loop permits at most three rounds when configured). Calls are not atomic; effects of earlier successful calls cannot necessarily be undone if a later call fails.
 5. **Response filtering:** Removing leading `<think>` blocks improves presentation but is not a general-purpose content-safety or confidentiality guarantee.
 6. **Server stability:** One HTTP 500 / `EngineCore` failure was observed, followed by a successful retry without a confirmed root cause.
@@ -272,8 +272,7 @@ The four additional logging cases brought the discovered suite to 88 tests. The 
 
 ## Next engineering direction
 
-The agent now supports document retrieval as a tool, sequential tool selection, and context-budget rejection between rounds. Subsequent work should prioritize practical improvements, such as constraining excessively large tool results before they enter the conversation, verifying source attribution, and measuring multi-step tool-selection reliability on varied questions. The verified experiments, limitations, and regression results are recorded below.
-
+The agent now supports document retrieval as a tool, sequential tool selection, tool-aware context checks, and bounded document-search results. Further work should focus on verifying source attribution, handling other large tool outputs, and measuring tool-selection reliability across varied questions. The verified experiments, limitations, and regression results are recorded below.
 
 
 ## Multi-Round Agent Tool Orchestration
@@ -374,8 +373,9 @@ PASS: Live sequential tool execution verification completed.
 
 - One successful live run does not establish general reliability.
 - Model-directed tool selection can vary between runs.
-- Tool-aware context checks now run before model requests, but
-  oversized tool results are rejected instead of truncated or summarized.
+- Tool-aware context checks run before model requests. Document search
+  omits passages to fit its evidence budget; other oversized tool
+  results can still trigger full-context rejection.
 - Tool execution is not transactional; earlier tool side effects
   are not automatically rolled back if a later operation fails.
 - Document search results can contain irrelevant or outdated
@@ -480,10 +480,104 @@ document-search result and did not require vLLM inference.
 - Token usage grows as tool requests and results accumulate.
 - Requests exceeding the configured budget are rejected
   before the next model completion.
-- Oversized tool results are not automatically truncated.
+- Document search bounds its own result by omitting passages.
+  Other tools rely on the full-context rejection mechanism.
 - Tool execution may have occurred before an overflow is
   detected; tool side effects are not transactional.
 - Final-answer length and citation accuracy still require
   separate evaluation.
 - The tests establish the observed behavior of these
   scenarios, not comprehensive reliability under all inputs.
+
+
+## Bounded Document-Search Evidence
+
+### Objective
+
+Prevent large document-search results from consuming excessive
+context tokens during multi-round agent execution.
+
+### Implementation
+
+Updated `src/tools/document_search_tool.py` to enforce a
+2,500-token limit on serialized document-search results.
+
+The tool:
+
+- Retrieves passages using the existing HybridRetriever.
+- Processes passages in retrieval-ranking order.
+- Counts serialized JSON evidence with the Qwen3 tokenizer.
+- Retains complete passages that fit the budget.
+- Omits passages that would exceed the evidence budget.
+- Reports the number of omitted passages.
+
+The tool-loop context checks remain responsible for enforcing
+the overall 8,192-token model context window.
+
+### Reproducible Evidence-Budget Verification
+
+Command:
+
+    python -m scripts.verify_document_search_budget
+
+Observed real-document retrieval:
+
+| Measurement | Result |
+|---|---:|
+| Evidence tokens | 1,758 |
+| Maximum allowed | 2,500 |
+| Returned passages | 6 |
+| Omitted passages | 0 |
+
+Observed oversized-passage simulation:
+
+| Measurement | Result |
+|---|---:|
+| Evidence tokens | 78 |
+| Maximum allowed | 2,500 |
+| Returned passages | 1 |
+| Omitted passages | 1 |
+
+The oversized passage was excluded, while the smaller
+passage remained available.
+
+All verification checks passed.
+
+### Live Sequential Tool Verification
+
+Command:
+
+    python -m scripts.verify_live_sequential_tools
+
+After an initial connection-refused error, the vLLM server
+was restarted and the experiment was repeated successfully.
+
+Observed sequence:
+
+1. Round 1: search_project_documents
+2. Round 2: summarize_measurements
+
+Retrieved measurements: [13, 25, 61, 92]
+
+Results:
+
+- Count: 4
+- Mean: 47.75
+- Minimum: 13.0
+- Maximum: 92.0
+
+The answer cited tool-execution.md.
+
+All live verification checks passed.
+
+### Limitations
+
+- The 2,500-token budget applies only to the document-search
+  result, not the complete conversation.
+- Oversized passages are omitted, not summarized or split.
+- Relevant evidence may be excluded by the budget.
+- The full context-budget check may still reject a request
+  if conversation history and tool results consume too
+  many tokens.
+- One successful live run does not establish general
+  tool-selection or answer-generation reliability.

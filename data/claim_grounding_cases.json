@@ -1,0 +1,99 @@
+
+{
+  "evidence": [
+    {
+      "id": "registry",
+      "source": "docs/tool-execution.md",
+      "text": "ToolRegistry accepts explicitly registered function names and Python callables. It rejects invalid names, duplicate registrations, unknown tools, and non-dictionary argument containers. It does not independently enforce JSON Schema. Model-generated requests use ToolExecutor, which applies the corresponding ToolArgumentValidator before invoking the registry."
+    },
+    {
+      "id": "measurements",
+      "source": "docs/tool-execution.md",
+      "text": "SUMMARIZE_MEASUREMENTS_DEFINITION requires a top-level values array of 1–10,000 numeric elements, with no unexpected top-level properties. The tool function independently rejects non-lists, empty lists, Boolean/nonnumeric elements, non-finite values, and oversized inputs."
+    },
+    {
+      "id": "rounds",
+      "source": "docs/tool-execution.md",
+      "text": "The run_tool_turn() function supports up to three bounded tool-selection rounds, with at most three tool calls per round. Its default is one round for compatibility, while AgentHarness currently requests two rounds."
+    },
+    {
+      "id": "evidence_budget",
+      "source": "docs/tool-execution.md",
+      "text": "Document search limits serialized evidence to 2,500 tokens, omitting passages that do not fit. The full tool-loop context checks remain responsible for enforcing the overall 8,192-token model context window."
+    }
+  ],
+  "cases": [
+    {
+      "id": "R1",
+      "evidence_id": "registry",
+      "claim": "ToolRegistry rejects unknown tools.",
+      "label": "entailment"
+    },
+    {
+      "id": "R2",
+      "evidence_id": "registry",
+      "claim": "ToolRegistry independently enforces JSON Schema.",
+      "label": "contradiction"
+    },
+    {
+      "id": "R3",
+      "evidence_id": "registry",
+      "claim": "ToolExecutor uploads its audit records to Amazon S3.",
+      "label": "neutral"
+    },
+    {
+      "id": "M1",
+      "evidence_id": "measurements",
+      "claim": "The statistics tool rejects empty measurement lists.",
+      "label": "entailment"
+    },
+    {
+      "id": "M2",
+      "evidence_id": "measurements",
+      "claim": "Boolean elements are accepted as valid measurements.",
+      "label": "contradiction"
+    },
+    {
+      "id": "M3",
+      "evidence_id": "measurements",
+      "claim": "The statistics tool stores measurements in SQLite.",
+      "label": "neutral"
+    },
+    {
+      "id": "T1",
+      "evidence_id": "rounds",
+      "claim": "AgentHarness currently requests two tool-selection rounds.",
+      "label": "entailment"
+    },
+    {
+      "id": "T2",
+      "evidence_id": "rounds",
+      "claim": "The maximum number of tool calls per round is five.",
+      "label": "contradiction"
+    },
+    {
+      "id": "T3",
+      "evidence_id": "rounds",
+      "claim": "The agent uses persistent GPU key-value caches between tool rounds.",
+      "label": "neutral"
+    },
+    {
+      "id": "B1",
+      "evidence_id": "evidence_budget",
+      "claim": "Document search excludes passages that exceed its evidence budget.",
+      "label": "entailment"
+    },
+    {
+      "id": "B2",
+      "evidence_id": "evidence_budget",
+      "claim": "Document search has an unlimited evidence-token budget.",
+      "label": "contradiction"
+    },
+    {
+      "id": "B3",
+      "evidence_id": "evidence_budget",
+      "claim": "Retrieved document passages are encrypted using AES-256.",
+      "label": "neutral"
+    }
+  ]
+}

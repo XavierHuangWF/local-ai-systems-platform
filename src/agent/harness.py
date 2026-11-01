@@ -3,13 +3,15 @@ from src.agent.token_counter import TokenCounter
 from src.skills.skill_loader import Skill, SkillLoader
 
 from src.tools.executor import ToolExecutor
-from src.tools.definitions import (SUMMARIZE_MEASUREMENTS_DEFINITION, DOCUMENT_SEARCH_DEFINITION, )
+from src.tools.definitions import (SUMMARIZE_MEASUREMENTS_DEFINITION, DOCUMENT_SEARCH_DEFINITION, MCP_SUMMARIZE_MEASUREMENTS_DEFINITION,)
 from src.tools.statistics_tool import summarize_measurements
 from src.agent.tool_loop import run_tool_turn
 
 from src.agent.response_formatter import clean_model_response
 
 from src.tools.document_search_tool import DocumentSearchTool
+
+from src.tools.mcp_statistics_tool import MCPStatisticsTool
 
 SYSTEM_PROMPT = (
     "You are a concise AI systems assistant. "
@@ -41,6 +43,14 @@ class AgentHarness:
             handler=self.document_search_tool,
         )
 
+        # Register statistics execution through the MCP server.
+        # Keep the original direct Python statistics tool unchanged.
+        self.mcp_statistics_tool = MCPStatisticsTool()
+
+        self.tool_executor.register(
+            definition=MCP_SUMMARIZE_MEASUREMENTS_DEFINITION,
+            handler=self.mcp_statistics_tool,
+        )
 
         # Preserve existing chat behavior until tool mode is enabled.
         self.tools_enabled = False

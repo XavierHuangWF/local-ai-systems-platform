@@ -86,3 +86,36 @@ DOCUMENT_SEARCH_DEFINITION = ToolDefinition(
         "additionalProperties": False,
     },
 )
+
+
+
+MCP_SUMMARIZE_MEASUREMENTS_DEFINITION = ToolDefinition(
+    name="mcp_summarize_measurements",
+    description=(
+        "Calculate the count, mean, minimum, and maximum "
+        "of numerical measurements through a local "
+        "Model Context Protocol (MCP) server. "
+        "Use this tool when MCP-based execution is explicitly "
+        "requested. For ordinary statistics calculations, "
+        "use summarize_measurements instead."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "values": {
+                "type": "array",
+                "description": (
+                    "A list of numerical measurements "
+                    "to summarize."
+                ),
+                "items": {
+                    "type": "number",
+                },
+                "minItems": 1,
+                "maxItems": 10000,
+            },
+        },
+        "required": ["values"],
+        "additionalProperties": False,
+    },
+)

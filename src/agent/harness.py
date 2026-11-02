@@ -13,6 +13,8 @@ from src.tools.document_search_tool import DocumentSearchTool
 
 from src.tools.mcp_statistics_tool import MCPStatisticsTool
 
+from src.tools.permissions import ToolPermissionPolicy
+
 SYSTEM_PROMPT = (
     "You are a concise AI systems assistant. "
     "Answer technical questions clearly and accurately."
@@ -22,12 +24,31 @@ MAX_HISTORY_TURNS = 6
 
 
 class AgentHarness:
-    def __init__(self):
+    def __init__(
+            self,
+            permission_policy: ToolPermissionPolicy | None = None,
+    ):
+
         self.model = VLLMClient()
         self.token_counter = TokenCounter()
         self.skill_loader = SkillLoader()
 
-        self.tool_executor = ToolExecutor()
+
+        # Explicit default permissions for the three existing tools.
+        # Newly registered tools are denied until added to the policy.
+        if permission_policy is None:
+            permission_policy = ToolPermissionPolicy(
+                allowed_tools=frozenset({
+                    "summarize_measurements",
+                    "search_project_documents",
+                    "mcp_summarize_measurements",
+                })
+            )
+
+        self.tool_executor = ToolExecutor(
+            permission_policy=permission_policy,
+        )
+
 
         self.tool_executor.register(
             definition=SUMMARIZE_MEASUREMENTS_DEFINITION,

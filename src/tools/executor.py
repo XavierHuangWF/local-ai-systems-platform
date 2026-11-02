@@ -5,6 +5,7 @@ from typing import Any
 from src.tools.definitions import ToolDefinition
 from src.tools.registry import ToolRegistry
 from src.tools.validator import ToolArgumentValidator
+from src.tools.permissions import ToolPermissionPolicy
 
 import logging
 
@@ -13,10 +14,23 @@ logger = logging.getLogger("local_ai.tool_execution")
 class ToolExecutor:
     """Validate and execute explicitly registered tools."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        permission_policy: ToolPermissionPolicy | None = None,
+    ) -> None:
+        if (
+            permission_policy is not None
+            and not isinstance(permission_policy, ToolPermissionPolicy)
+        ):
+            raise TypeError(
+                "permission_policy must be a ToolPermissionPolicy."
+            )
+
         self.registry = ToolRegistry()
         self.definitions: dict[str, ToolDefinition] = {}
         self.validators: dict[str, ToolArgumentValidator] = {}
+        self.permission_policy = permission_policy
+
 
     def register(
         self,
@@ -51,6 +65,13 @@ class ToolExecutor:
 
         if name not in self.validators:
             raise ValueError(f"Unknown tool: {name}")
+
+
+        # Enforce authorization before validating arguments
+        # or invoking the registered Python handler.
+        if self.permission_policy is not None:
+            self.permission_policy.require_authorized(name)
+
 
         # Reject invalid model-generated arguments.
         validated_arguments = self.validators[name].validate(

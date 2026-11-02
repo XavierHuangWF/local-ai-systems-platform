@@ -12,6 +12,8 @@ import logging
 
 from src.agent.source_attribution import check_source_attribution
 
+import re
+
 MAX_TOOL_CALLS = 3
 MAX_TOOL_ROUNDS = 3
 
@@ -48,6 +50,21 @@ def report_source_attribution(
         logger.warning(
             "Document search was used, but no Markdown "
             "source reference was found in the answer."
+        )
+
+
+def reject_unparsed_tool_calls(content: str) -> None:
+    """Reject tool-call markup emitted as plain assistant text."""
+
+    if re.search(
+        r"</?\s*tool_call\s*>",
+        content,
+        flags=re.IGNORECASE,
+    ):
+        raise RuntimeError(
+            "Model emitted tool-call markup as plain text "
+            "instead of a structured tool call. "
+            "No tool execution can be inferred."
         )
 
 
@@ -140,6 +157,9 @@ def run_tool_turn(
                 raise RuntimeError(
                     "Model returned neither text nor tool calls."
                 )
+
+            reject_unparsed_tool_calls(assistant.content)
+
             report_source_attribution(
                 assistant.content,
                 retrieved_passages,
@@ -246,6 +266,7 @@ def run_tool_turn(
         raise RuntimeError(
             "Model returned an empty final answer."
         )
+    reject_unparsed_tool_calls(final_message.content)
 
     report_source_attribution(
         final_message.content,
